@@ -1,0 +1,43 @@
+# dataset
+path: ../dataset/kitti
+dataset: kitti
+category_name: Cyclist  # ['Car', 'Van', 'Pedestrian', 'Cyclist']
+point_dim: 3
+train_split: train tiny
+valid_split: valid tiny
+test_split: test tiny
+coordinate_mode: velodyne
+
+# dataloader
+full_area: False
+rand_distortion_range: 0.3
+search_area_offset: 2
+template_size: 512
+search_size: 1024
+workers: 1
+box_enlarge_scale: 1.25
+
+random_sample: False
+num_candidates: 1
+
+# model
+addnorm_drop: 0.5
+n_head: 8
+dgn_k: 5
+att_k: 5
+motion_k: 5
+rpn_k: 5
+
+# train
+checkpoint: ./checkpoint
+batch_size: 8
+epoch: 60
+pretrain:
+optimizer: adam
+lr: 0.001
+check_val_every_n_epoch: 1
+save_last: False
+
+# loss
+box_weight: 0.5
+cla_weight: 0.5
