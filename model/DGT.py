@@ -15,7 +15,7 @@ class DecoderBlock(nn.Module):
 
         self.att = MultiHeadRSAttention(in_channel, cfg)
         self.addnorm = AddNormLayer(in_channel, cfg)
-        self.dgn1 = DGN(in_channel, in_channel, k=cfg.dgn_k)
+        self.dgn1 = EdgeConv(in_channel, in_channel, k=cfg.dgn_k)  # DGN(in_channel, in_channel, k=cfg.dgn_k)
 
         self.appearCrossAtt = MultiHeadRSAttention(in_channel, cfg)
         self.motionCrossAtt = MultiHeadRSAttention(in_channel, cfg)
@@ -23,8 +23,9 @@ class DecoderBlock(nn.Module):
         box_dim = 64
         self.box = nn.Linear(7, box_dim, bias=False)
 
-        self.dgn21 = DGN(in_channel                           , out_channel                           , k=cfg.dgn_k)
-        self.dgn22 = DGN(in_channel + box_dim if isLast else 0, out_channel + box_dim if isLast else 0, k=cfg.dgn_k)
+        self.merge = nn.Conv1d(in_channel + box_dim, in_channel, kernel_size=1, bias=False)
+        self.dgn21 = EdgeConv(in_channel, out_channel, k=cfg.dgn_k)  # DGN(in_channel, out_channel, k=cfg.dgn_k)
+        self.dgn22 = EdgeConv(in_channel, out_channel, k=cfg.dgn_k)  # DGN(in_channel, out_channel, k=cfg.dgn_k)
 
     def self_attention_block(self, search, template):
         # Multi-head Attention
@@ -38,8 +39,9 @@ class DecoderBlock(nn.Module):
         searchFeat   = dgn1(search)
         templateFeat = dgn2(template)
 
-        return (self.addnorm(search  , searchFeat  ),
-                self.addnorm(template, templateFeat))
+        x = self.addnorm(search  , searchFeat  )
+        y = self.addnorm(template, templateFeat)
+        return x, y
 
     def cross_attention_block(self, search, template):
         # Cross Multi-head Attention
@@ -68,7 +70,8 @@ class DecoderBlock(nn.Module):
         if self.isLast:
             N = template.shape[-1]
             bbox = self.box(bbox).unsqueeze(dim=-1).expand(-1, -1, N)  # [B, box_dim, 1]
-            template = torch.cat((template, bbox), dim=1)  # [B, D2 * n_head + box_dim, P2)
+            template = torch.cat((template, bbox), dim=1)  # [B, D2 + box_dim, P2]
+            template = self.merge(template)  # [B, D2, P2]
 
         search, template = self.dgn_block(self.dgn21, self.dgn22, search, template)
         return search, template
@@ -82,7 +85,7 @@ class MotionDetectModule(nn.Module):
         self.edgeConv3 = EdgeConv(256, 256, k)
 
         self.conv = nn.Conv1d(256, out_channel // 2, kernel_size=1)
-        self.relu = nn.LeakyReLU(negative_slope=0.2)
+        self.relu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
         self.norm = nn.BatchNorm1d(out_channel // 2)
 
     def forward(self, x):
@@ -116,9 +119,11 @@ class TwoStreamDynamicGraphTransformer(nn.Module):
             dim = 3
 
         self.dgn = DGN(dim, out_channel=128, k=cfg.dgn_k)
-        self.decoder = DecoderBlock(128, 128, cfg, isLast=True)
-        self.motion = MotionDetectModule(128 + 64, 256, k=cfg.motion_k)
-        self.rpn = DynamicGraphRPN(128 * 2 + 64 * 2, 256, cfg)
+        # self.decoder1 = DecoderBlock(128, 128, cfg)
+        # self.decoder2 = DecoderBlock(128, 128, cfg)
+        self.decoder3 = DecoderBlock(128, 128, cfg, isLast=True)
+        self.motion = MotionDetectModule(128, 64, k=cfg.motion_k)
+        self.rpn = DynamicGraphRPN(128 + 64, 256, cfg)
 
     def forward(self, data):
         search = data["search"].to(self.device)
@@ -129,17 +134,19 @@ class TwoStreamDynamicGraphTransformer(nn.Module):
         searchFeat   = self.dgn(search)  # [B, D2, P1]
         templateFeat = self.dgn(template)  # [B, D2, P2]
 
-        appear, motion = self.decoder(searchFeat, templateFeat, bbox)  # [B, dim, P1], [B, dim + box_dim, P2]
-        motionFeat = self.motion(motion)
-        N = appear.shape[-1]
-        jointFeat = torch.cat((appear, motionFeat.expand(-1, -1, N)), dim=1)  # [B, dim + motion_dim, P2]
+        # searchFeat, templateFeat = self.decoder1(searchFeat, templateFeat, bbox)  # [B, dim, P1], [B, dim + box_dim, P2]
+        searchFeat, templateFeat = self.decoder3(searchFeat, templateFeat, bbox)  # [B, dim, P1], [B, dim + box_dim, P2]
+
+        motionFeat = self.motion(templateFeat)
+        N = searchFeat.shape[-1]
+        jointFeat = torch.cat((searchFeat, motionFeat.expand(-1, -1, N)), dim=1)  # [B, dim + motion_dim, P1]
         box, cla = self.rpn(xyz, jointFeat)
 
-        finalBoxID = torch.argmax(box[:, -1, :], dim=1).view(-1, 1, 1)
-        finalBox = torch.gather(box, 1, finalBoxID.expand(-1, -1, box.shape[-1]))
-        finalBox = finalBox.squeeze(1)
+        finalBoxID = torch.argmax(box[:, -1, :], dim=1).view(-1, 1, 1)  # [B, 1, 1]
+        finalBoxID = finalBoxID.expand(-1, 5, -1)  # [B, 5, 1]
+        finalBox = torch.gather(box, -1, finalBoxID).squeeze(-1)  # [B, 5]
         return {
-            "predBox": box,
+            "predBox": box.permute(0, 2, 1),  # [B, P1, 5]
             "predCla": cla,
             "finalBox": finalBox,
         }

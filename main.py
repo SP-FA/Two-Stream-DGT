@@ -19,6 +19,9 @@ from metrics import Success, Precision
 from metrics import estimateOverlap, estimateAccuracy
 
 
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
+
 def load_yaml(file_name):
     with open(file_name, 'r') as f:
         try:
@@ -66,19 +69,13 @@ def criterion(batch, output, device):
         "loss_vote": float
     }
     """
-    predBox = output['predBox']  # B,num_proposal,5
-    predCla = output['predCla'].squeeze(1)  # B,N
+    predBox = output['predBox']  # [B, N, 5]
+    predCla = output['predCla'].squeeze(1)  # [B, N]
 
-    print(predCla.shape)
-    print(batch['claLabel'].to(device).shape)
-    claLabel = batch['claLabel'].to(device)
-    trueBox = batch['trueBox'].to(device)  # B,4
+    claLabel = batch['claLabel'].to(device)  # [B, N]
+    trueBox = batch['trueBox'].to(device)  # [B, 4]
     # center_xyz = output["center_xyz"]  # B,num_proposal,3
     # vote_xyz = output["vote_xyz"]
-
-    # N = predCla.shape[1]
-    # claLabel = claLabel.gather(dim=1, index=sample_idxs[:, :N].long())
-
     loss_cla = F.binary_cross_entropy_with_logits(predCla, claLabel)
 
     # loss_vote = F.smooth_l1_loss(vote_xyz, trueBox[:, None, :3].expand_as(vote_xyz), reduction='none')  # B,N,3
@@ -98,8 +95,7 @@ def criterion(batch, output, device):
     # loss_objective = torch.sum(loss_objective * objectness_mask) / (
     #         torch.sum(objectness_mask) + 1e-6)
     loss_box = F.smooth_l1_loss(predBox[:, :, :4],
-                                trueBox[:, None, :4].expand_as(predBox[:, :, :4]),
-                                reduction='none')
+                                trueBox[:, None, :4].expand_as(predBox[:, :, :4]))
     # loss_box = torch.sum(loss_box.mean(2) * objectness_label) / (objectness_label.sum() + 1e-6)
 
     # totalLoss = loss_objective * cfg.object_weight + \
@@ -146,7 +142,7 @@ if __name__ == "__main__":
                 optim.zero_grad()
                 loss.backward()
                 optim.step()
-                totalLoss += loss
+                totalLoss += loss.detach().item()
 
                 for i in range(len(batch['trueBox'])):
                     tb = batch['trueBox'][i].cpu().detach().numpy()
@@ -160,10 +156,10 @@ if __name__ == "__main__":
                     SuccessTrain.add_overlap(overlap)
                     PrecisionTrain.add_accuracy(accuracy)
 
-                    trainBar.set_description(
-                        f"train {i_epoch}/{cfg.epoch}: [loss: {totalLoss / len(trainLoader):.3f}] "
-                        f"[S/P: {SuccessTrain.average:.1f}/{PrecisionTrain.average:.1f}]"
-                    )
+                trainBar.set_description(
+                    f"train {i_epoch}/{cfg.epoch}: [loss: {totalLoss / len(trainLoader):.3f}] "
+                    f"[S/P: {SuccessTrain.average:.1f}/{PrecisionTrain.average:.1f}]"
+                )
 
             SuccessTrain.reset()
             PrecisionTrain.reset()
@@ -171,7 +167,7 @@ if __name__ == "__main__":
             if cfg.save_last:
                 torch.save(model, os.path.join(cfg.checkpoint, f"last-model-{i_epoch}.pt"))
 
-            if i_epoch % cfg.check_cal_every_n_epoch != 0:
+            if i_epoch % cfg.check_val_every_n_epoch != 0:
                 continue
 
             # valid
@@ -185,7 +181,7 @@ if __name__ == "__main__":
                 with torch.no_grad():
                     res = model(batch)
                     loss = criterion(batch, res, cfg.device)
-                    validLoss += loss
+                    validLoss += loss.detach().item()
 
                 for i in range(len(batch['trueBox'])):
                     tb = batch['trueBox'][i].cpu().detach().numpy()
@@ -199,16 +195,16 @@ if __name__ == "__main__":
                     SuccessValid.add_overlap(overlap)
                     PrecisionValid.add_accuracy(accuracy)
 
-                    validBar.set_description(
-                        f"valid {i_epoch}/{cfg.epoch}: [loss: {validLoss / len(validLoader):.3f}] "
-                        f"[S/P: {SuccessValid.average:.1f}/{PrecisionValid.average:.1f}]"
-                    )
+                validBar.set_description(
+                    f"valid {i_epoch}/{cfg.epoch}: [loss: {validLoss / len(validLoader):.3f}] "
+                    f"[S/P: {SuccessValid.average:.1f}/{PrecisionValid.average:.1f}]"
+                )
 
-                if bestAcc < PrecisionValid.average:
-                    bestAcc = Precision.average
-                    torch.save(model, os.path.join(cfg.checkpoint, f"best_model-{i_epoch}-{SuccessValid.average}-{bestAcc}.pt"))
+            if bestAcc < PrecisionValid.average:
+                bestAcc = PrecisionValid.average
+                torch.save(model, os.path.join(cfg.checkpoint, f"best_model-{i_epoch}-{SuccessValid.average}-{bestAcc}.pt"))
 
-                SuccessValid.reset()
-                PrecisionValid.reset()
+            SuccessValid.reset()
+            PrecisionValid.reset()
         else:
             ...

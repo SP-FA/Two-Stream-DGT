@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from model.DGN.dgn import EdgeConv, DGN
+from model.DGN.dgn import EdgeConv
 
 
 class DynamicGraphRPN(nn.Module):
@@ -9,15 +9,17 @@ class DynamicGraphRPN(nn.Module):
         super(DynamicGraphRPN, self).__init__()
         self.vote_dgn = nn.Sequential(
             EdgeConv(feature_channel, vote_channel    , k=cfg.rpn_k),
+            EdgeConv(vote_channel   , vote_channel    , k=cfg.rpn_k),
             EdgeConv(vote_channel   , vote_channel + 3, k=cfg.rpn_k),
         )
         self.cla_dgn = nn.Sequential(
-            EdgeConv(feature_channel + 3, feature_channel // 2, k=cfg.rpn_k),
+            EdgeConv(feature_channel + 3 , feature_channel // 2, k=cfg.rpn_k),
+            EdgeConv(feature_channel // 2, feature_channel // 2, k=cfg.rpn_k),
             EdgeConv(feature_channel // 2, 1, k=cfg.rpn_k),
         )
         self.sigmoid = nn.Sigmoid()
         self.box_dgn = nn.Sequential(
-            EdgeConv(vote_channel + 3 , vote_channel // 2, k=cfg.rpn_k),
+            EdgeConv(vote_channel + 3 + 1, vote_channel // 2, k=cfg.rpn_k),
             EdgeConv(vote_channel // 2, vote_channel // 4, k=cfg.rpn_k),
             EdgeConv(vote_channel // 4, 5, k=cfg.rpn_k),
         )
@@ -41,7 +43,7 @@ class DynamicGraphRPN(nn.Module):
         cla = self.cla_dgn(xyz_feature)
         score = self.sigmoid(cla)  # [B, 1, N]
 
-        voteFeature = voteFeature * score
+        voteFeature = torch.cat((voteFeature, score), dim=1)
         vote_xyz_feature = torch.cat((vote_xyz, voteFeature), dim=1)
         box = self.box_dgn(vote_xyz_feature)  # [B, 5, N]
         return box, cla

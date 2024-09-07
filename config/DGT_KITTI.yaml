@@ -1,10 +1,10 @@
 # dataset
-path: ../dataset/kitti
+path: /home/spfa/dataset/kitti
 dataset: kitti
-category_name: Cyclist  # ['Car', 'Van', 'Pedestrian', 'Cyclist']
+category_name: Car  # ['Car', 'Van', 'Pedestrian', 'Cyclist']
 point_dim: 3
-train_split: train tiny
-valid_split: valid tiny
+train_split: train
+valid_split: valid
 test_split: test tiny
 coordinate_mode: velodyne
 
@@ -14,14 +14,14 @@ rand_distortion_range: 0.3
 search_area_offset: 2
 template_size: 512
 search_size: 1024
-workers: 1
+workers: 12
 box_enlarge_scale: 1.25
 
 random_sample: False
 num_candidates: 1
 
 # model
-addnorm_drop: 0.5
+addnorm_drop: 0.2
 n_head: 8
 dgn_k: 5
 att_k: 5
@@ -30,7 +30,7 @@ rpn_k: 5
 
 # train
 checkpoint: ./checkpoint
-batch_size: 8
+batch_size: 32
 epoch: 60
 pretrain:
 optimizer: adam

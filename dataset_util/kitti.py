@@ -173,7 +173,7 @@ class KITTI_Util(BaseDataset):
             splitDict = {"train": [0], "valid": [18], "test": [19]}
         else:
             splitDict = {
-                "train": list(range(0, 7)),  # list(range(0, 17)),
+                "train": list(range(0, 17)),  # list(range(0, 17)),
                 "valid": list(range(17, 19)),
                 "test": list(range(19, 21))}
 

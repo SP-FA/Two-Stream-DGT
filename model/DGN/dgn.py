@@ -12,7 +12,7 @@ class DGN(nn.Module):
         self.edgeConv3 = EdgeConv(64, 64, k)
 
         self.conv = nn.Conv1d(64, 1024, kernel_size=1)
-        self.relu = nn.LeakyReLU(negative_slope=0.2)
+        self.relu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
         self.norm = nn.BatchNorm1d(1024)
 
         self.mlp1 = nn.Sequential(
@@ -66,7 +66,7 @@ class EdgeConv(nn.Module):
         self.conv1 = nn.Conv2d(in_channel, 64, kernel_size=1, bias=False)
         self.conv2 = nn.Conv2d(64, 64, kernel_size=1, bias=False)
         self.conv3 = nn.Conv2d(64, out_channel, kernel_size=1, bias=False)
-        self.relu = nn.LeakyReLU(negative_slope=0.2)
+        self.relu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
         self.norm1 = nn.BatchNorm2d(64)
         self.norm2 = nn.BatchNorm2d(out_channel)
 

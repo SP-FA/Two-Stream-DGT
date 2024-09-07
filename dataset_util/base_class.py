@@ -1,11 +1,3 @@
-import copy
-import numpy as np
-import torch
-from pyquaternion import Quaternion
-
-from dataset_util.box_struct import Box
-
-
 class BaseDataset:
 	def __init__(self, cfg, split):
 		self._path = cfg.path
